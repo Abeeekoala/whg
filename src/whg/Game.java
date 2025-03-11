@@ -25,7 +25,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.lang.StringBuilder;
 
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
@@ -33,17 +32,11 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.Timer;
 
-import java.io.*;
-import java.net.*;
-
 import kuusisto.tinysound.Music;
 import kuusisto.tinysound.Sound;
 import kuusisto.tinysound.TinySound;
 
 public class Game extends JPanel implements ActionListener {
-
-	public static final String SERVER_ADDRESS = "13.60.53.107";
-	public static final int SERVER_PORT = 12000;
 
 	/** An instance of the game. */
 	private static Game game;
@@ -63,7 +56,7 @@ public class Game extends JPanel implements ActionListener {
 	static JFrame frame = new JFrame();
 
 	/** The enum instance used for switching the state of the game. */
-	static final int INTRO = 0, LOGIN = 1, MAIN_MENU = 2, LEVEL_TITLE = 3, LEVEL = 4;
+	static final int INTRO = 0, MAIN_MENU = 1, LEVEL_TITLE = 2, LEVEL = 3;
 
 	/** The integer used for the game state. */
 	static int gameState = INTRO;
@@ -75,17 +68,13 @@ public class Game extends JPanel implements ActionListener {
 	/** This is the level that the player is on. */
 	static int levelNum = 0;
 
-	public static StringBuilder inputStringBuilder = new StringBuilder();
-
-	public static String username = "Player 1";
-	public static String highscore = "0";
 	/** A player class, used to get information about the player. */
 	//private Player player = new Player();
 
 	//private Player player2 = new Player();
 
 	// Player 1 on port 5000
-	Player player = new Player(username, 400, 300, Color.RED, 5000);
+	Player player = new Player(400, 300, Color.RED, 5000);
 
 	// Player 2 on port 5001
 	// Player player2 = new Player(400, 300, Color.BLUE, 5001);
@@ -98,20 +87,20 @@ public class Game extends JPanel implements ActionListener {
 
 	/** Images for indicating volume. */
 	private final Image VOLUME_BLACK = new ImageIcon(ClassLoader.getSystemResource(
-			"resources/volume_black.png")).getImage();
+			"whg/resources/volume_black.png")).getImage();
 	private final Image VOLUME_BLACK_MUTE = new ImageIcon(ClassLoader.getSystemResource(
-			"resources/volume_black_mute.png")).getImage();
+			"whg/resources/volume_black_mute.png")).getImage();
 	private final Image VOLUME_WHITE = new ImageIcon(ClassLoader.getSystemResource(
-			"resources/volume_white.png")).getImage();
+			"whg/resources/volume_white.png")).getImage();
 	private final Image VOLUME_WHITE_MUTE = new ImageIcon(ClassLoader.getSystemResource(
-			"resources/volume_white_mute.png")).getImage();
+			"whg/resources/volume_white_mute.png")).getImage();
 
 	/** Background music. */
 	static Thread bgMusic = new Thread() {
 		public void run() {
 			TinySound.init();
 			Music bgmusic = TinySound.loadMusic(ClassLoader.getSystemResource(
-					"resources/music.ogg"));
+					"whg/resources/music.ogg"));
 			bgmusic.play(true);
 		}
 	};
@@ -123,8 +112,8 @@ public class Game extends JPanel implements ActionListener {
 			} catch (InterruptedException e) {
 				TextFileWriter.appendToFile(logFilePath, e.getMessage());
 			}
-			gameState = LOGIN;
-			easyLog(logger, Level.INFO, "Game state set to LOGIN");
+			gameState = MAIN_MENU;
+			easyLog(logger, Level.INFO, "Game state set to MAIN_MENU");
 		}
 	};
 
@@ -142,10 +131,10 @@ public class Game extends JPanel implements ActionListener {
 	private int introTextOpacity = 0;
 
 	/** A whoosh sound. */
-	Sound drone = TinySound.loadSound(ClassLoader.getSystemResource("resources/drone.ogg"));
+	Sound drone = TinySound.loadSound(ClassLoader.getSystemResource("whg/resources/drone.ogg"));
 
 	/** A bell sound. */
-	Sound bell = TinySound.loadSound(ClassLoader.getSystemResource("resources/bell.wav"));
+	Sound bell = TinySound.loadSound(ClassLoader.getSystemResource("whg/resources/bell.wav"));
 
 	/** Network manager for multiplayer functionality */
 	private NetworkManager networkManager = null;
@@ -154,7 +143,7 @@ public class Game extends JPanel implements ActionListener {
 	private boolean connectedToServer = false;
 	
 	/** Default server URL */
-	private String serverUrl = "http://18.134.131.81";
+	private String serverUrl = "http://18.171.220.207:5000";
 	
 	// Server connection button dimensions (for main menu)
 	private final int SERVER_BUTTON_X = 600;
@@ -180,16 +169,6 @@ public class Game extends JPanel implements ActionListener {
 	// Apply an offset to the UI coordinates (adjust X_OFFSET and Y_OFFSET based on your findings)
 	private static final int X_OFFSET = 0;
 	private static final int Y_OFFSET = -30; 
-
-	private static boolean waitingForOtherPlayers = false;
-
-	public static void setWaitingForOtherPlayers(boolean waiting) {
-		waitingForOtherPlayers = waiting;
-	}
-
-	public static boolean isWaitingForOtherPlayers() {
-		return waitingForOtherPlayers;
-	}
 
 	public void paintComponent(final Graphics g) {
 		super.paintComponent(g);
@@ -256,39 +235,9 @@ public class Game extends JPanel implements ActionListener {
 				endIntro.start();
 			}
 
-		} else if (gameState == LOGIN){
-			// Handle username input
-			Input.typing = true;
-			// Handle backspace
-			if (Input.backspace.isPressed && !inputStringBuilder.isEmpty()) {
-				inputStringBuilder.setLength(inputStringBuilder.length() - 1);
-			}
 
-			// Handle submit
-			if (Input.enter.isPressed && !inputStringBuilder.isEmpty()) {
-				username = inputStringBuilder.toString().trim();
-				player.setName(username);
-				try (Socket socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
-					 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-					 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
 
-					System.out.println("Connected to server.");
 
-					out.println("GET_HIGHSCORE " + username);
-					highscore = in.readLine();
-					System.out.println("HighScore: " + highscore);
-
-					// Explicitly close the socket and streams
-					out.close();
-					in.close();
-					socket.close();
-					System.out.println("Connection closed.");
-
-				} catch (IOException e) {
-					System.err.println("Error: " + e.getMessage());
-				}
-				gameState = MAIN_MENU;
-			}
 
 		} else if (gameState == MAIN_MENU) {
 
@@ -466,37 +415,6 @@ public class Game extends JPanel implements ActionListener {
 			g2.setColor(new Color(0, 0, 0, introTextOpacity));
 			drawCenteredString("Dont Tilt: Made by Team 6", 400, 250, g2);
 
-		}else if (gameState == LOGIN) {
-			// Background
-			g2.setColor(Color.LIGHT_GRAY);
-			g2.fillRect(0, 0, 800, 600);
-
-			// Title
-			g2.setFont(new Font("Tahoma", Font.BOLD, 30));
-			g2.setColor(Color.BLACK);
-			drawCenteredString("Login", 400, 100, g2);
-
-			// Username Label
-			g2.setFont(new Font("Tahoma", Font.PLAIN, 20));
-			drawCenteredString("Enter Username:", 400, 200, g2);
-
-			// Username Input Box
-			g2.setColor(Color.WHITE);
-			g2.fillRect(300, 230, 200, 40);
-			g2.setColor(Color.BLACK);
-			g2.drawRect(300, 230, 200, 40);
-
-			// Draw the username text inside the input box
-			g2.setFont(new Font("Tahoma", Font.PLAIN, 18));
-			g2.drawString(String.valueOf(inputStringBuilder), 310, 255);
-
-			// Submit Button
-			g2.setColor(Color.BLUE);
-			g2.fillRect(350, 300, 100, 40);
-			g2.setColor(Color.WHITE);
-			g2.setFont(new Font("Tahoma", Font.BOLD, 20));
-			drawCenteredString("Submit", 400, 328, g2);
-
 		} else if (gameState == MAIN_MENU) {
 
 			if (showIntro) {
@@ -639,13 +557,7 @@ public class Game extends JPanel implements ActionListener {
 
 				// Show death counts for both players
 				g.setColor(player.getPlayerColor());
-				drawString(username + " Deaths: " + player.getDeaths(), 5, 17, g);
-				if ( Integer.parseInt(highscore) == 1000){
-					drawString( "First Attempt", 5, 37, g);
-				}
-				else {
-					drawString("Highscore: " + highscore, 5, 37, g);
-				}
+				drawString("P1 Deaths: " + player.getDeaths(), 5, 17, g);
 
 				// g.setColor(player2.getPlayerColor());
 				// drawRightJustifiedString("P2 Deaths: " + player2.getDeaths(), 750, 17, g);
@@ -668,14 +580,6 @@ public class Game extends JPanel implements ActionListener {
 			// Draw remote players in the level if connected
 			if (connectedToServer && networkManager != null) {
 				drawRemotePlayers(g);
-			}
-
-			if (waitingForOtherPlayers) {
-				g.setColor(new Color(0, 0, 0, 180));
-				g.fillRect(0, 0, 800, 600);
-				g.setColor(Color.WHITE);
-				g.setFont(new Font("Arial", Font.BOLD, 24));
-				g.drawString("Waiting for other players to complete the level...", 150, 300);
 			}
 		} else if (gameState == LEVEL_TITLE) {
 			//Background
@@ -999,7 +903,7 @@ public class Game extends JPanel implements ActionListener {
 
 		try {
 			while (new File(ClassLoader
-					.getSystemResource("resources/maps/level_" + (totalLevels+1) + ".txt").toURI())
+					.getSystemResource("whg/resources/maps/level_" + (totalLevels+1) + ".txt").toURI())
 					.exists()) {
 				totalLevels++;
 			}
@@ -1026,19 +930,11 @@ public class Game extends JPanel implements ActionListener {
 		game = new Game();
 		frame.add(game);
 
-		frame.setIconImage(new ImageIcon(ClassLoader.getSystemResource("resources/favicon.png")).getImage());
+		frame.setIconImage(new ImageIcon(ClassLoader.getSystemResource("whg/resources/favicon.png")).getImage());
 		frame.setVisible(true);
 		
 		// Register shutdown hook for clean network disconnection
 		setupShutdownHook();
-	}
-
-	public static boolean isConnectedToServer() {
-		return game.connectedToServer;
-	}
-
-	public static NetworkManager getNetworkManager() {
-		return game.networkManager;
 	}
 
 }

@@ -37,8 +37,6 @@ public class Input {
 		}
 	}
 
-	public static boolean typing = false;
-
 	public static Key left = new Key();
 	public static Key right = new Key();
 	public static Key up = new Key();
@@ -113,9 +111,6 @@ public class Input {
 		Game.frame.addKeyListener(new KeyListener() {
 
 			public void keyTyped(KeyEvent e) {
-				if (typing) {
-					handleKeyTyped(e, Game.inputStringBuilder);
-				}
 			}
 
 			public void keyPressed(KeyEvent e) {
@@ -236,11 +231,5 @@ public class Input {
 				System.exit(0);
 			}
 		});
-	}
-		public static void handleKeyTyped(KeyEvent e, StringBuilder input) {
-		char keyChar = e.getKeyChar();
-		// Append the typed character to the StringBuilder
-		input.append(keyChar);
-		System.out.println("Key typed: " + keyChar);
 	}
 }
