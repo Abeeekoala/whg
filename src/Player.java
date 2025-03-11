@@ -372,7 +372,7 @@ public class Player {
 		// Notify server that this player completed the level
 		Game.easyLog(Game.logger, Level.INFO, "Sending level completion to server for level " + Game.levelNum);
 		
-		// Send level completion to server and wait for confirmation
+		// Send level completion to server and check if all players are complete
 		new Thread() {
 			public void run() {
 				try {
@@ -381,28 +381,15 @@ public class Player {
 					
 					if (allPlayersCompleted) {
 						// All players completed the level, proceed to next level
-						SwingUtilities.invokeLater(() -> {
-							// Add protection against reloading
-							final int transitioningToLevel = Game.levelNum + 1;
-							Game.levelNum++;
-							
-							// Handle game finish and update highscore if needed
-							if (Game.levelNum == 11) {
-								updateHighScore();
-							}
-							
-							level.init(Game.getPlayers()[0], Game.levelNum);
-							Game.gameState = Game.LEVEL_TITLE;
-							Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE after server confirmation");
-							hasNotifiedLevelCompletion = false;
-							// Start next level after delay
-							startLevelAfterDelay(transitioningToLevel);
-						});
+						proceedToNextLevelMultiplayer(level);
 					} else {
 						// Not all players have completed the level yet
 						Game.easyLog(Game.logger, Level.INFO, "Waiting for other players to complete level " + Game.levelNum);
 						// Display a waiting message on screen
 						Game.setWaitingForOtherPlayers(true);
+						
+						// Start polling for completion status
+						startCompletionStatusPolling(level);
 					}
 				} catch (Exception e) {
 					Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
@@ -411,6 +398,63 @@ public class Player {
 				}
 			}
 		}.start();
+	}
+
+	private void startCompletionStatusPolling(final GameLevel level) {
+		new Thread() {
+			public void run() {
+				boolean allComplete = false;
+				
+				// Poll every 1 second until all players complete the level or polling is interrupted
+				while (!allComplete && !Thread.currentThread().isInterrupted()) {
+					try {
+						Thread.sleep(1000); // Wait 1 second between polls
+						
+						// Check with server if all players have completed the level
+						allComplete = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
+						
+						if (allComplete) {
+							// All players have now completed the level
+							Game.easyLog(Game.logger, Level.INFO, "All players completed level " + Game.levelNum);
+							Game.setWaitingForOtherPlayers(false);
+							proceedToNextLevelMultiplayer(level);
+							break;
+						}
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						Game.easyLog(Game.logger, Level.WARNING, "Completion polling interrupted: " + e.getMessage());
+					} catch (Exception e) {
+						Game.easyLog(Game.logger, Level.SEVERE, "Error checking completion status: " + Game.getStringFromStackTrace(e));
+						// Wait a bit longer before retrying after an error
+						try {
+							Thread.sleep(2000);
+						} catch (InterruptedException ie) {
+							Thread.currentThread().interrupt();
+						}
+					}
+				}
+			}
+		}.start();
+	}
+
+	private void proceedToNextLevelMultiplayer(GameLevel level) {
+		SwingUtilities.invokeLater(() -> {
+			// Add protection against reloading
+			final int transitioningToLevel = Game.levelNum + 1;
+			Game.levelNum++;
+			
+			// Handle game finish and update highscore if needed
+			if (Game.levelNum == 11) {
+				updateHighScore();
+			}
+			
+			level.init(Game.getPlayers()[0], Game.levelNum);
+			Game.gameState = Game.LEVEL_TITLE;
+			Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE after server confirmation");
+			hasNotifiedLevelCompletion = false;
+			// Start next level after delay
+			startLevelAfterDelay(transitioningToLevel);
+		});
 	}
 
 	private void updateHighScore() {
