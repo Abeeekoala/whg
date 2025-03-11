@@ -17,7 +17,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 UDP_HOST = '0.0.0.0'
 POSITION_UPDATE_PORT = 8089
@@ -104,38 +104,53 @@ def handle_tcp_level_completion(conn, addr):
         logger.info(f"Level completion: Player {player_id} completed level {level_num} (combat: {combat_id})")
         
         all_completed = False
+        current_level = 0
+        
         with level_lock:
-            # Update level number for this combat group if higher
+            # Get the current level for this combat group
             current_level = level_numbers.get(combat_id, 0)
-            if level_num > current_level:
-                level_numbers[combat_id] = level_num
-                # Clear previous level completions when starting a new level
-                level_completions[combat_id] = set()
+            
+            # If player is reporting completion for an old level that's already been completed
+            if level_num < current_level:
+                logger.info(f"Player {player_id} reporting completion for old level {level_num}, current is {current_level}")
+                # Tell them the level is already completed by everyone
+                conn.send(json.dumps({"allCompleted": True, "currentLevel": current_level}).encode('utf-8'))
+                return
                 
-            # Mark this player as having completed the level
-            level_completions[combat_id].add(player_id)
-            
-            # Get all players in this combat group
-            players_in_group = []
-            with player_lock:
-                for pid, pdata in players.items():
-                    if pdata.get('combatTag') == combat_id and pid != 'dummy-player-id':
-                        players_in_group.append(pid)
-            
-            # Check if all players in the group have completed
-            missing_players = set(players_in_group) - level_completions[combat_id]
-            all_completed = len(missing_players) == 0
-            
-            logger.info(f"Combat {combat_id}: {len(level_completions[combat_id])}/{len(players_in_group)} " + 
-                      f"players completed level {level_num}. All completed: {all_completed}")
-            
-            # If all completed, increment level number and clear completions
-            if all_completed:
-                level_numbers[combat_id] = level_num + 1
-                level_completions[combat_id] = set()
+            # If this is the first report for this level, or the level is current
+            if level_num >= current_level:
+                # If it's a new level, update and reset completions
+                if level_num > current_level:
+                    level_numbers[combat_id] = level_num
+                    level_completions[combat_id] = set()
                 
-        # Send response
-        response = {"allCompleted": all_completed}
+                # Mark this player as having completed the level
+                level_completions[combat_id].add(player_id)
+                
+                # Get all players in this combat group
+                players_in_group = []
+                with player_lock:
+                    for pid, pdata in players.items():
+                        if pdata.get('combatTag') == combat_id and pid != 'dummy-player-id':
+                            players_in_group.append(pid)
+                
+                # Check if all players in the group have completed
+                missing_players = set(players_in_group) - level_completions[combat_id]
+                all_completed = len(missing_players) == 0
+                
+                logger.info(f"Combat {combat_id}: {len(level_completions[combat_id])}/{len(players_in_group)} " + 
+                          f"players completed level {level_num}. All completed: {all_completed}")
+                
+                # If all completed, increment level number and clear completions
+                if all_completed:
+                    level_numbers[combat_id] = level_num + 1
+                    level_completions[combat_id] = set()
+                
+        # Send response with current level information
+        response = {
+            "allCompleted": all_completed,
+            "currentLevel": level_numbers.get(combat_id, 0)
+        }
         conn.send(json.dumps(response).encode('utf-8'))
         
     except Exception as e:

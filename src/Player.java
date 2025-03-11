@@ -408,7 +408,7 @@ public class Player {
 				// Poll every 1 second until all players complete the level or polling is interrupted
 				while (!allComplete && !Thread.currentThread().isInterrupted()) {
 					try {
-						Thread.sleep(1000); // Wait 1 second between polls
+						Thread.sleep(50); // Wait 1 second between polls
 						
 						// Check with server if all players have completed the level
 						allComplete = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
