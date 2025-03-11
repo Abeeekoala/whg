@@ -630,7 +630,12 @@ public class Game extends JPanel implements ActionListener {
 				// Show death counts for both players
 				g.setColor(player.getPlayerColor());
 				drawString(username + " Deaths: " + player.getDeaths(), 5, 17, g);
-				drawString("Highscore: " + highscore, 5, 37, g);
+				if ( Integer.parseInt(highscore) == 1000){
+					drawString( "First Attempt", 5, 37, g);
+				}
+				else {
+					drawString("Highscore: " + highscore, 5, 37, g);
+				}
 
 				// g.setColor(player2.getPlayerColor());
 				// drawRightJustifiedString("P2 Deaths: " + player2.getDeaths(), 750, 17, g);
