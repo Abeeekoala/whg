@@ -5,21 +5,17 @@ import java.awt.Graphics;
 import java.awt.Rectangle;
 import java.awt.Shape;
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.logging.Level;
-
 
 import kuusisto.tinysound.Sound;
 import kuusisto.tinysound.TinySound;
 
 public class Player {
 
-	private String name;
 	private Color playerColor;
 	private int x;
 	private int y;
@@ -91,8 +87,7 @@ public class Player {
 	}
 
 	// Constructors modified to include port for FPGA server
-	public Player(String name, int x, int y, Color color, int port) {
-		this.name = name;
+	public Player(int x, int y, Color color, int port) {
 		this.x = x;
 		this.y = y;
 		this.snapX = x/40;
@@ -112,9 +107,6 @@ public class Player {
 		this.fpgaServer.start();
 	}
 
-	// Name Getter and Setter
-	public String getName() { return this.name;}
-	public void setName(String name) { this.name = name;}
 
 	public void draw(Graphics g) {
 		g.setColor(new Color(0, 0, 0, (int) opacity));
@@ -261,28 +253,6 @@ public class Player {
 						// Add protection against reloading
 						final int transitioningToLevel = Game.levelNum + 1;
 						Game.levelNum++;
-						// Game finish and update highscore
-						if (Game.levelNum == 11){
-								try (Socket socket = new Socket(Game.SERVER_ADDRESS, Game.SERVER_PORT);
-										 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-										 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
-
-										System.out.println("Connected to server.");
-
-										out.println("SET_HIGHSCORE " + Game.username + ", " + deaths);
-										String Score = in.readLine();
-										System.out.println("Score: " + Score);
-
-										// Explicitly close the socket and streams
-										out.close();
-										in.close();
-										socket.close();
-										System.out.println("Connection closed.");
-
-								} catch (IOException e) {
-										System.err.println("Error: " + e.getMessage());
-								}
-						}
 						level.init(Game.getPlayers()[0], Game.levelNum);
 						Game.gameState = Game.LEVEL_TITLE;
 						Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE");
