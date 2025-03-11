@@ -210,41 +210,26 @@ public class GameLevel {
 		this.levelTitle = "\"Intimidating message\nhere\"";
 
 		try {
-			// Load player 1 spawn point as before
+			String resourcePath = "resources/maps/level_" + levelNum;
+			
+			// Load player 1 spawn point
 			this.spawnPoint = new Point(
 					Integer.parseInt(PropLoader
-							.loadProperty("spawn_point",
-									"resources/maps/level_" + levelNum + ".properties")
+							.loadProperty("spawn_point", resourcePath + ".properties")
 							.split(",")[0]) * 40 + 20,
 					Integer.parseInt(PropLoader
-							.loadProperty("spawn_point",
-									"resources/maps/level_" + levelNum + ".properties")
+							.loadProperty("spawn_point", resourcePath + ".properties")
 							.split(",")[1]) * 40 + 20);
 
-			// Try to load player 2 spawn point
-			// String player2SpawnProp = PropLoader.loadProperty("spawn_point_player2",
-			// 		"resources/maps/level_" + levelNum + ".properties");
-
-			// if (player2SpawnProp != null) {
-			// 	this.spawnPointPlayer2 = new Point(
-			// 			Integer.parseInt(player2SpawnProp.split(",")[0]) * 40 + 20,
-			// 			Integer.parseInt(player2SpawnProp.split(",")[1]) * 40 + 20);
-			// } else {
-			// 	// Default: offset player 2 spawn from player 1
-			// 	this.spawnPointPlayer2 = new Point(this.spawnPoint.x + 40, this.spawnPoint.y);
-			// }
-
 			this.id = Integer.parseInt(PropLoader.loadProperty("level_id",
-					"resources/maps/level_"
-							+ levelNum + ".properties"));
+					resourcePath + ".properties"));
 
 			this.levelTitle = PropLoader.loadProperty("level_title",
-					"resources/maps/level_"
-							+ levelNum + ".properties").toString();
+					resourcePath + ".properties").toString();
 
-			// Process coins for both players
+			// Process coins
 			String coinData = PropLoader.loadProperty("coins",
-					"resources/maps/level_" + levelNum + ".properties");
+					resourcePath + ".properties");
 
 			if (coinData != null && !coinData.equals("null")) {
 				coinData = coinData.replaceAll("\\Z", "");
@@ -256,39 +241,53 @@ public class GameLevel {
 						int coinY = (int) (Double.parseDouble(s.split(",")[1]) * 40);
 
 						this.coins.add(new Coin(coinX, coinY));
-						// this.coinsPlayer2.add(new Coin(coinX, coinY)); // Duplicate for player 2
 					}
 				} else {
 					int coinX = (int) (Double.parseDouble(coinData.split(",")[0]) * 40);
 					int coinY = (int) (Double.parseDouble(coinData.split(",")[1]) * 40);
 
 					this.coins.add(new Coin(coinX, coinY));
-					// this.coinsPlayer2.add(new Coin(coinX, coinY)); // Duplicate for player 2
 				}
 			}
 			Game.easyLog(Game.logger, Level.INFO, "All coins have been added");
 
-			//Retrieves the tile data
-			InputStreamReader isr = new InputStreamReader(ClassLoader
-					.getSystemResource(
-							"resources/maps/level_"
-									+ levelNum + ".txt").openStream());
-			String content = "";
-			Scanner scanner = new Scanner(isr);
-			content = scanner.useDelimiter("\\Z").next();
-			scanner.close();
-
-			Game.easyLog(Game.logger, Level.INFO, "Level data:\n\n" + content);
-
-			content = content.replaceAll("\n", "");
-
-			for (int i = 0; i < content.length(); i++) {
-				if (i > 299)
-					break;
-				else
-					this.tileMap.add(new Tile((i % 20) * 40, (i / 20) * 40,
-							Character.getNumericValue(content.charAt(i))));
+			// New robust approach using BufferedReader
+			ArrayList<String> mapLines = new ArrayList<>();
+			try (java.io.BufferedReader reader = new java.io.BufferedReader(
+					new java.io.InputStreamReader(
+							ClassLoader.getSystemResourceAsStream(resourcePath + ".txt"), 
+							java.nio.charset.StandardCharsets.UTF_8))) {
+				
+				String line;
+				while ((line = reader.readLine()) != null) {
+					mapLines.add(line.trim());
+				}
 			}
+			
+			// Process map data
+			StringBuilder mapData = new StringBuilder();
+			int mapHeight = Math.min(15, mapLines.size());
+			for (int i = 0; i < mapHeight; i++) {
+				mapData.append(mapLines.get(i).replaceAll("\\s+", ""));
+			}
+			
+			Game.easyLog(Game.logger, Level.INFO, "Map data length: " + mapData.length());
+
+			// Create tile map
+			for (int i = 0; i < mapData.length() && i < 300; i++) {
+				char tileChar = mapData.charAt(i);
+				int tileType = Character.getNumericValue(tileChar);
+				
+				if (tileType >= 0 && tileType <= 9) {
+					this.tileMap.add(new Tile((i % 20) * 40, (i / 20) * 40, tileType));
+				} else {
+					Game.easyLog(Game.logger, Level.WARNING, "Invalid tile character at position " + i + 
+							   ": '" + tileChar + "' (code: " + (int)tileChar + ")");
+					this.tileMap.add(new Tile((i % 20) * 40, (i / 20) * 40, 0));
+				}
+			}
+			
+			// Generate level area
 			this.levelArea = new Area();
 			for (Tile t : this.tileMap) {
 				if (t.getType() != 0) {
@@ -296,45 +295,50 @@ public class GameLevel {
 							new Rectangle(t.getX() - 3, t.getY() - 3 + 22, 46, 46)));
 				}
 			}
-		} catch (Exception e) {
-			Game.easyLog(Game.logger, Level.SEVERE, "Map unable to be loaded:\n" + Game.getStringFromStackTrace(e));
-		}
-		//Retrieves the dot data
-		try {
-			InputStreamReader isr = new InputStreamReader(ClassLoader
-					.getSystemResource(
-							"resources/maps/level_"
-									+ levelNum + ".txt").openStream());
-			Scanner scanner = new Scanner(isr);
-			String content = scanner.useDelimiter("\\Z").next();
-			String[] lines = content.split("\n");
-			scanner.close();
-			for (int i=19; lines[i] != null; i++) {
-				String line = lines[i];
-				String[] dotData = line.replaceAll(" ", "").split("-");
-				this.dots.add(new Dot(
-						Integer.parseInt(dotData[0]),
-						Integer.parseInt(dotData[1]),
-						new Point(Integer.parseInt(dotData[2].split(",")[0]),
-								Integer.parseInt(dotData[2].split(",")[1])),
-						new Point(Integer.parseInt(dotData[3].split(",")[0]),
-								Integer.parseInt(dotData[3].split(",")[1])),
-						Double.parseDouble(dotData[4]),
-						Boolean.parseBoolean(dotData[5]),
-						Boolean.parseBoolean(dotData[6])
-				));
+			
+			// Process dot data
+			int dotStartLine = 19;  // Typically dots start after line 19
+			while (dotStartLine < mapLines.size()) {
+				String line = mapLines.get(dotStartLine);
+				if (line.isEmpty()) {
+					dotStartLine++;
+					continue;
+				}
+				
+				try {
+					String[] dotData = line.replaceAll("\\s+", "").split("-");
+					if (dotData.length >= 7) {
+						this.dots.add(new Dot(
+								Integer.parseInt(dotData[0]),
+								Integer.parseInt(dotData[1]),
+								new Point(Integer.parseInt(dotData[2].split(",")[0]),
+										Integer.parseInt(dotData[2].split(",")[1])),
+								new Point(Integer.parseInt(dotData[3].split(",")[0]),
+										Integer.parseInt(dotData[3].split(",")[1])),
+								Double.parseDouble(dotData[4]),
+								Boolean.parseBoolean(dotData[5]),
+								Boolean.parseBoolean(dotData[6])
+						));
+					}
+				} catch (Exception e) {
+					if (e.getClass().getName() != "java.lang.ArrayIndexOutOfBoundsException")
+						Game.easyLog(Game.logger, Level.WARNING, "Error parsing dot data: " + line);
+				}
+				dotStartLine++;
 			}
+			
 			Game.easyLog(Game.logger, Level.INFO, "All dots have been added");
+			
 		} catch (Exception e) {
 			if (e.getClass().getName() != "java.lang.ArrayIndexOutOfBoundsException")
 				Game.easyLog(Game.logger, Level.SEVERE, "Dots unable to be loaded:\n" + Game.getStringFromStackTrace(e));
 		}
+		
 		if (this.tileMap.size() == 300) Game.easyLog(Game.logger, Level.INFO, "All tiles have been added");
 		else Game.easyLog(Game.logger, Level.WARNING, "Not all tiles were added");
 
-		// Respawn both players
+		// Respawn player
 		player1.respawn(this);
-		// player2.respawn(this);
 	}
 
 }
