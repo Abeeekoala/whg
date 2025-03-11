@@ -1,4 +1,5 @@
 package whg;
+
 import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Rectangle;
@@ -55,7 +56,7 @@ public class Tile {
 			
 				if (this.getSnapX() % 2 == 0) {
 					if (this.getSnapY() % 2 == 0) {
-						g.setColor(new Color(230, 230, 255));
+						g.setColor(new Color(229, 255, 204));
 					} else {
 						g.setColor(Color.WHITE);
 					}
@@ -63,14 +64,14 @@ public class Tile {
 					if (this.getSnapY() % 2 == 0) {
 						g.setColor(Color.WHITE);
 					} else {
-						g.setColor(new Color(230, 230, 255));
+						g.setColor(new Color(229, 255, 204));
 					}
 				}
 				g.fillRect(this.getX(), this.getY() + 22, 40, 40);
 			
 			//Checkpoint
 			} else if (this.getType() == 2) {
-				g.setColor(new Color(181, 254, 180));
+				g.setColor(new Color(255, 204, 229));
 				g.fillRect(this.getX(), this.getY() + 22, 40, 40);
 				
 			//Goal
