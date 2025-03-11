@@ -733,7 +733,7 @@ public class Game extends JPanel implements ActionListener {
 			// Initialize the NetworkManager only when attempting connection
 			if (networkManager == null) {
 				networkManager = NetworkManager.getInstance();
-				networkManager.init(serverUrl);
+				networkManager.init(serverUrl, username);
 			}
 			
 			// Connect synchronously to get immediate feedback

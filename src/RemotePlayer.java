@@ -2,7 +2,6 @@ package whg;
 
 import java.awt.Color;
 import java.awt.Graphics;
-import java.util.logging.Level;
 
 public class RemotePlayer {
     private String playerId;
@@ -68,7 +67,7 @@ public class RemotePlayer {
         if (playerId != null) {
             g.setColor(Color.BLACK);
             int tagWidth = g.getFontMetrics().stringWidth(playerId.substring(0, Math.min(8, playerId.length())));
-            g.drawString("Player_" + playerId.substring(0, Math.min(8, playerId.length())), x - (tagWidth / 2), y - 15);
+            g.drawString( playerId.substring(0, Math.min(8, playerId.length())), x - (tagWidth / 2), y - 15);
         }
     }
     

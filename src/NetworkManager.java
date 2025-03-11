@@ -77,11 +77,11 @@ public class NetworkManager {
         return instance;
     }
     
-    public void init(String serverUrl) {
+    public void init(String serverUrl, String username) {
         if (initialized) return;
         
         this.serverUrl = serverUrl;
-        this.playerId = UUID.randomUUID().toString();
+        this.playerId = username;
         this.udpExecutor = Executors.newSingleThreadExecutor();
         
         Game.easyLog(Game.logger, Level.INFO, "NetworkManager initialized with server: " + serverUrl);
