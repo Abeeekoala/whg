@@ -3,6 +3,7 @@ package whg;
 import java.awt.Color;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
@@ -571,5 +572,52 @@ public class NetworkManager {
             }
         });
         networkThread.start();
+    }
+
+    /**
+     * Sends level completion notification to server and waits for response
+     * @param levelNum The level number that was completed
+     * @return True if all players have completed the level and we can proceed
+     */
+    public boolean sendLevelCompletionToServer(int levelNum) {
+        try {
+            // Create socket
+            Socket socket = new Socket(serverAddr, 5001); // New port for level completion
+            socket.setSoTimeout(10000); // 10 second timeout
+            
+            // Prepare message
+            JSONObject message = new JSONObject();
+            message.put("playerId", playerId);
+            message.put("combatId", combatTag);
+            message.put("levelNum", levelNum);
+            
+            // Send message
+            OutputStream output = socket.getOutputStream();
+            output.write(message.toString().getBytes());
+            
+            // Wait for response
+            InputStream input = socket.getInputStream();
+            byte[] buffer = new byte[1024];
+            int bytesRead = input.read(buffer);
+            
+            if (bytesRead > 0) {
+                String response = new String(buffer, 0, bytesRead);
+                JSONParser parser = new JSONParser();
+                JSONObject responseJson = (JSONObject)parser.parse(response);
+                boolean allCompleted = Boolean.TRUE.equals(responseJson.get("allCompleted"));
+                
+                Game.easyLog(Game.logger, Level.INFO, 
+                    "Level completion response: " + (allCompleted ? "All players completed" : "Waiting for others"));
+                
+                socket.close();
+                return allCompleted;
+            }
+            
+            socket.close();
+            return false;
+        } catch (Exception e) {
+            Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
+            return false; // On error, allow the player to proceed (graceful degradation)
+        }
     }
 }

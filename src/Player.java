@@ -13,6 +13,7 @@ import java.util.logging.Level;
 
 import kuusisto.tinysound.Sound;
 import kuusisto.tinysound.TinySound;
+import javax.swing.SwingUtilities;
 
 public class Player {
 
@@ -250,33 +251,62 @@ public class Player {
 						// Add debug before changing level
 						System.out.println("DEBUG: Transitioning from level " + Game.levelNum + " to " + (Game.levelNum+1));
 						
-						// Add protection against reloading
-						final int transitioningToLevel = Game.levelNum + 1;
-						Game.levelNum++;
-						level.init(Game.getPlayers()[0], Game.levelNum);
-						Game.gameState = Game.LEVEL_TITLE;
-						Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE");
-
-						// Add a completion flag to prevent multiple triggers
-						final boolean[] transitionComplete = {false};
-						
-						// Wait 1.75 seconds then start the next level
-						new Thread() {
-							public void run() {
-								try {
-									Thread.sleep(1750);
-								} catch (InterruptedException e) {
-									Game.easyLog(Game.logger, Level.SEVERE, Game.getStringFromStackTrace(e));
+						if (Game.isConnectedToServer() && Game.getNetworkManager() != null) {
+							// Notify server that this player completed the level
+							Game.easyLog(Game.logger, Level.INFO, "Sending level completion to server for level " + Game.levelNum);
+							
+							// Send level completion to server and wait for confirmation
+							new Thread() {
+								public void run() {
+									try {
+										// Send completion notification to server
+										boolean allPlayersCompleted = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
+										
+										if (allPlayersCompleted) {
+											// All players completed the level, proceed to next level
+											
+											// Execute level transition in the game thread
+											SwingUtilities.invokeLater(() -> {
+												// Add protection against reloading
+												final int transitioningToLevel = Game.levelNum + 1;
+												Game.levelNum++;
+												level.init(Game.getPlayers()[0], Game.levelNum);
+												Game.gameState = Game.LEVEL_TITLE;
+												Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE after server confirmation");
+												
+												// Wait 1.75 seconds then start the next level
+												new Thread() {
+													public void run() {
+														try {
+															Thread.sleep(1750);
+														} catch (InterruptedException e) {
+															Game.easyLog(Game.logger, Level.SEVERE, Game.getStringFromStackTrace(e));
+														}
+														// Only change game state if we're still on the level we transitioned to
+														if (Game.levelNum == transitioningToLevel) {
+															Game.gameState = Game.LEVEL;
+															Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL after server confirmation");
+														}
+													}
+												}.start();
+											});
+										} else {
+											// Not all players have completed the level yet
+											Game.easyLog(Game.logger, Level.INFO, "Waiting for other players to complete level " + Game.levelNum);
+											// Display a waiting message on screen
+											Game.setWaitingForOtherPlayers(true);
+										}
+									} catch (Exception e) {
+										Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
+										// If there's an error, fall back to single player behavior
+										proceedToNextLevel(level);
+									}
 								}
-								// Only change game state if we're still on the level we transitioned to
-								if (Game.levelNum == transitioningToLevel) {
-									Game.gameState = Game.LEVEL;
-									transitionComplete[0] = true;
-									Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL");
-								}
-							}
-						}.start();
-						
+							}.start();
+						} else {
+							// Not connected to server, use original single player logic
+							proceedToNextLevel(level);
+						}
 						// Exit the loop to prevent multiple triggers
 						return;
 					}
@@ -355,9 +385,31 @@ public class Player {
 		}
 	}
 
+	// Helper method to handle transition to next level
+	private void proceedToNextLevel(GameLevel level) {
+		// Add protection against reloading
+		final int transitioningToLevel = Game.levelNum + 1;
+		Game.levelNum++;
+		level.init(Game.getPlayers()[0], Game.levelNum);
+		Game.gameState = Game.LEVEL_TITLE;
+		Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE");
 
-
-
+		// Wait 1.75 seconds then start the next level
+		new Thread() {
+			public void run() {
+				try {
+					Thread.sleep(1750);
+				} catch (InterruptedException e) {
+					Game.easyLog(Game.logger, Level.SEVERE, Game.getStringFromStackTrace(e));
+				}
+				// Only change game state if we're still on the level we transitioned to
+				if (Game.levelNum == transitioningToLevel) {
+					Game.gameState = Game.LEVEL;
+					Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL");
+				}
+			}
+		}.start();
+	}
 
 	public int getX() {
 		return this.x;

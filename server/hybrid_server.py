@@ -5,6 +5,7 @@ import time
 import logging
 import random
 import json
+from collections import defaultdict
 
 # Configure logging
 logging.basicConfig(
@@ -24,6 +25,9 @@ PLAYER_LIST_PORT = 8090
 TIMEOUT = 15
 players = {}
 player_lock = threading.Lock()
+level_completions = defaultdict(set)  # Combat ID -> set of player IDs that completed the level
+level_numbers = {}  # Combat ID -> current level number
+level_lock = threading.Lock()
 
 position_update_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 position_update_socket.bind(('', POSITION_UPDATE_PORT))
@@ -79,6 +83,79 @@ def tcp_combat_id_server():
         conn, addr = tcp_socket.accept()
         threading.Thread(target=handle_tcp_combat_id, args=(conn, addr), daemon=True).start()
 
+def handle_tcp_level_completion(conn, addr):
+    """Handle an incoming TCP connection for level completion."""
+    try:
+        data = conn.recv(1024)
+        if not data:
+            return
+
+        # Parse the JSON data sent by the client
+        msg = json.loads(data.decode('utf-8'))
+        player_id = msg.get("playerId")
+        combat_id = msg.get("combatId")
+        level_num = msg.get("levelNum")
+        
+        if not all([player_id, combat_id, level_num is not None]):
+            logger.warning(f"Invalid level completion data: {msg}")
+            conn.send(json.dumps({"allCompleted": False}).encode('utf-8'))
+            return
+            
+        logger.info(f"Level completion: Player {player_id} completed level {level_num} (combat: {combat_id})")
+        
+        all_completed = False
+        with level_lock:
+            # Update level number for this combat group if higher
+            current_level = level_numbers.get(combat_id, 0)
+            if level_num > current_level:
+                level_numbers[combat_id] = level_num
+                # Clear previous level completions when starting a new level
+                level_completions[combat_id] = set()
+                
+            # Mark this player as having completed the level
+            level_completions[combat_id].add(player_id)
+            
+            # Get all players in this combat group
+            players_in_group = []
+            with player_lock:
+                for pid, pdata in players.items():
+                    if pdata.get('combatTag') == combat_id and pid != 'dummy-player-id':
+                        players_in_group.append(pid)
+            
+            # Check if all players in the group have completed
+            missing_players = set(players_in_group) - level_completions[combat_id]
+            all_completed = len(missing_players) == 0
+            
+            logger.info(f"Combat {combat_id}: {len(level_completions[combat_id])}/{len(players_in_group)} " + 
+                      f"players completed level {level_num}. All completed: {all_completed}")
+            
+            # If all completed, increment level number and clear completions
+            if all_completed:
+                level_numbers[combat_id] = level_num + 1
+                level_completions[combat_id] = set()
+                
+        # Send response
+        response = {"allCompleted": all_completed}
+        conn.send(json.dumps(response).encode('utf-8'))
+        
+    except Exception as e:
+        logger.error(f"TCP level completion error: {e}")
+        try:
+            conn.send(json.dumps({"allCompleted": False, "error": str(e)}).encode('utf-8'))
+        except:
+            pass
+    finally:
+        conn.close()
+
+def tcp_level_completion_server():
+    """Start a TCP server on port 5001 to handle level completion synchronization."""
+    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_socket.bind(('', 5001))
+    tcp_socket.listen(5)
+    logger.info("TCP level completion server listening on port 5001")
+    while True:
+        conn, addr = tcp_socket.accept()
+        threading.Thread(target=handle_tcp_level_completion, args=(conn, addr), daemon=True).start()
 
 # ------------------------
 # UDP SERVER FUNCTIONS
@@ -377,6 +454,9 @@ def main():
     
     # Start TCP combat ID server
     threading.Thread(target=tcp_combat_id_server, daemon=True).start()
+    
+    # Start TCP level completion server
+    threading.Thread(target=tcp_level_completion_server, daemon=True).start()
     
     # Start position update thread
     threading.Thread(target=handle_position_updates, args=(position_update_socket,), daemon=True).start()

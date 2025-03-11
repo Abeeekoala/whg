@@ -143,7 +143,7 @@ public class Game extends JPanel implements ActionListener {
 	private boolean connectedToServer = false;
 	
 	/** Default server URL */
-	private String serverUrl = "http://18.171.220.207:5000";
+	private String serverUrl = "http://18.134.131.81";
 	
 	// Server connection button dimensions (for main menu)
 	private final int SERVER_BUTTON_X = 600;
@@ -169,6 +169,16 @@ public class Game extends JPanel implements ActionListener {
 	// Apply an offset to the UI coordinates (adjust X_OFFSET and Y_OFFSET based on your findings)
 	private static final int X_OFFSET = 0;
 	private static final int Y_OFFSET = -30; 
+
+	private static boolean waitingForOtherPlayers = false;
+
+	public static void setWaitingForOtherPlayers(boolean waiting) {
+		waitingForOtherPlayers = waiting;
+	}
+
+	public static boolean isWaitingForOtherPlayers() {
+		return waitingForOtherPlayers;
+	}
 
 	public void paintComponent(final Graphics g) {
 		super.paintComponent(g);
@@ -581,6 +591,14 @@ public class Game extends JPanel implements ActionListener {
 			if (connectedToServer && networkManager != null) {
 				drawRemotePlayers(g);
 			}
+
+			if (waitingForOtherPlayers) {
+				g.setColor(new Color(0, 0, 0, 180));
+				g.fillRect(0, 0, 800, 600);
+				g.setColor(Color.WHITE);
+				g.setFont(new Font("Arial", Font.BOLD, 24));
+				g.drawString("Waiting for other players to complete the level...", 150, 300);
+			}
 		} else if (gameState == LEVEL_TITLE) {
 			//Background
 			g2.setPaint(new GradientPaint(0, 0, new Color(213, 213, 255), 0, 600, Color.WHITE));
@@ -935,6 +953,14 @@ public class Game extends JPanel implements ActionListener {
 		
 		// Register shutdown hook for clean network disconnection
 		setupShutdownHook();
+	}
+
+	public static boolean isConnectedToServer() {
+		return game.connectedToServer;
+	}
+
+	public static NetworkManager getNetworkManager() {
+		return game.networkManager;
 	}
 
 }
