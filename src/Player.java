@@ -40,6 +40,8 @@ public class Player {
 	private double yTilt = 0.0;
 	private FPGAServer fpgaServer;
 
+	private boolean hasNotifiedLevelCompletion = false;
+
 	// Inner class to handle FPGA server for each player
 	private class FPGAServer {
 		private ServerSocket serverSocket;
@@ -255,84 +257,35 @@ public class Player {
 		if (!level.getTileMap().isEmpty()) {
 			if (level.allCoinsCollected()) {
 				for (Tile t : level.getTileMap()) {
-					if (t.getType() == 3 && this.collidesWith(t.getBounds())) {
-						// Add debug before changing level
+					if (t.getType() == 3 && this.collidesWith(t.getBounds()) && !hasNotifiedLevelCompletion) {
+						// Set flag to prevent multiple notifications
+						if (Game.levelNum == 11){
+							try (Socket socket = new Socket(Game.SERVER_ADDRESS, Game.SERVER_PORT);
+									 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+									 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+
+									System.out.println("Connected to server.");
+
+									out.println("SET_HIGHSCORE " + Game.username + ", " + deaths);
+									String Score = in.readLine();
+									System.out.println("Score: " + Score);
+
+									// Explicitly close the socket and streams
+									out.close();
+									in.close();
+									socket.close();
+									System.out.println("Connection closed.");
+
+							} catch (IOException e) {
+									System.err.println("Error: " + e.getMessage());
+							}
+						}
+
 						System.out.println("DEBUG: Transitioning from level " + Game.levelNum + " to " + (Game.levelNum+1));
 						
 						if (Game.isConnectedToServer() && Game.getNetworkManager() != null) {
-							// Notify server that this player completed the level
-							Game.easyLog(Game.logger, Level.INFO, "Sending level completion to server for level " + Game.levelNum);
-							
-							// Send level completion to server and wait for confirmation
-							new Thread() {
-								public void run() {
-									try {
-										// Send completion notification to server
-										boolean allPlayersCompleted = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
-										
-										if (allPlayersCompleted) {
-											// All players completed the level, proceed to next level
-											
-											// Execute level transition in the game thread
-											SwingUtilities.invokeLater(() -> {
-												// Add protection against reloading
-												final int transitioningToLevel = Game.levelNum + 1;
-												Game.levelNum++;
-												// Game finish and update highscore
-						if (Game.levelNum == 11){
-								try (Socket socket = new Socket(Game.SERVER_ADDRESS, Game.SERVER_PORT);
-										 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-										 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
-
-										System.out.println("Connected to server.");
-
-										out.println("SET_HIGHSCORE " + Game.username + ", " + deaths);
-										String Score = in.readLine();
-										System.out.println("Score: " + Score);
-
-										// Explicitly close the socket and streams
-										out.close();
-										in.close();
-										socket.close();
-										System.out.println("Connection closed.");
-
-								} catch (IOException e) {
-										System.err.println("Error: " + e.getMessage());
-								}
-						}
-						level.init(Game.getPlayers()[0], Game.levelNum);
-												Game.gameState = Game.LEVEL_TITLE;
-												Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE after server confirmation");
-												
-												// Wait 1.75 seconds then start the next level
-												new Thread() {
-													public void run() {
-														try {
-															Thread.sleep(1750);
-														} catch (InterruptedException e) {
-															Game.easyLog(Game.logger, Level.SEVERE, Game.getStringFromStackTrace(e));
-														}
-														// Only change game state if we're still on the level we transitioned to
-														if (Game.levelNum == transitioningToLevel) {
-															Game.gameState = Game.LEVEL;
-															Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL after server confirmation");
-														}
-													}
-												}.start();
-											});
-										} else {
-											// Not all players have completed the level yet
-											Game.easyLog(Game.logger, Level.INFO, "Waiting for other players to complete level " + Game.levelNum);
-											// Display a waiting message on screen
-											Game.setWaitingForOtherPlayers(true);
-										}
-									} catch (Exception e) {
-										Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
-										// If there's an error, fall back to single player behavior
-										proceedToNextLevel(level);
-									}
-								}
-							}.start();
+							hasNotifiedLevelCompletion = true;
+							handleMultiplayerLevelCompletion(level);
 						} else {
 							// Not connected to server, use original single player logic
 							proceedToNextLevel(level);
@@ -413,6 +366,83 @@ public class Player {
 				}
 			}
 		}
+	}
+
+	private void handleMultiplayerLevelCompletion(GameLevel level) {
+		// Notify server that this player completed the level
+		Game.easyLog(Game.logger, Level.INFO, "Sending level completion to server for level " + Game.levelNum);
+		
+		// Send level completion to server and wait for confirmation
+		new Thread() {
+			public void run() {
+				try {
+					// Send completion notification to server
+					boolean allPlayersCompleted = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
+					
+					if (allPlayersCompleted) {
+						// All players completed the level, proceed to next level
+						SwingUtilities.invokeLater(() -> {
+							// Add protection against reloading
+							final int transitioningToLevel = Game.levelNum + 1;
+							Game.levelNum++;
+							
+							// Handle game finish and update highscore if needed
+							if (Game.levelNum == 11) {
+								updateHighScore();
+							}
+							
+							level.init(Game.getPlayers()[0], Game.levelNum);
+							Game.gameState = Game.LEVEL_TITLE;
+							Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL_TITLE after server confirmation");
+							hasNotifiedLevelCompletion = false;
+							// Start next level after delay
+							startLevelAfterDelay(transitioningToLevel);
+						});
+					} else {
+						// Not all players have completed the level yet
+						Game.easyLog(Game.logger, Level.INFO, "Waiting for other players to complete level " + Game.levelNum);
+						// Display a waiting message on screen
+						Game.setWaitingForOtherPlayers(true);
+					}
+				} catch (Exception e) {
+					Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
+					// If there's an error, fall back to single player behavior
+					proceedToNextLevel(level);
+				}
+			}
+		}.start();
+	}
+
+	private void updateHighScore() {
+		try (Socket socket = new Socket(Game.SERVER_ADDRESS, Game.SERVER_PORT);
+			 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+			 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+
+			System.out.println("Connected to server.");
+			out.println("SET_HIGHSCORE " + Game.username + ", " + deaths);
+			String score = in.readLine();
+			System.out.println("Score: " + score);
+			System.out.println("Connection closed.");
+		} catch (IOException e) {
+			System.err.println("Error: " + e.getMessage());
+		}
+	}
+
+	private void startLevelAfterDelay(final int targetLevel) {
+		new Thread() {
+			public void run() {
+				try {
+					Thread.sleep(1750);
+				} catch (InterruptedException e) {
+					Game.easyLog(Game.logger, Level.SEVERE, Game.getStringFromStackTrace(e));
+				}
+				// Only change game state if we're still on the level we transitioned to
+				if (Game.levelNum == targetLevel) {
+					Game.gameState = Game.LEVEL;
+					Game.easyLog(Game.logger, Level.INFO, "Game state set to LEVEL after server confirmation");
+				}
+			}
+		}.start();
 	}
 
 	// Helper method to handle transition to next level
