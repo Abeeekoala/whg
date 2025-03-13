@@ -71,7 +71,7 @@ public class Dot {
 		this.snapY = y;
 		this.pos1 = pos1;
 		this.pos2 = pos2;
-		this.speed = 0.1;
+		this.speed = 0.7;
 		this.moveToPos1 = moveToPos1;
 		this.vertMovement = vertMovement;
 	}
@@ -141,7 +141,10 @@ public class Dot {
 	public int getSnapY() {
 		return this.snapY;
 	}
-	
+
+    public void setSpeed(double speed) {
+        this.speed = speed;
+    }
 	
 	
 	public double getSpeed() {

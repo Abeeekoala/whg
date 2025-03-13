@@ -31,6 +31,8 @@ public class Player {
 	private boolean collidingLeft;
 	private boolean collidingRight;
 	private int deaths;
+	private boolean already_minus;
+	private long powerupMessageEndTime = 0;
 	private boolean dead;
 	private double opacity;
 
@@ -41,6 +43,49 @@ public class Player {
 	private FPGAServer fpgaServer;
 
 	private boolean hasNotifiedLevelCompletion = false;
+
+	//PowerUp 
+	public enum PowerUp{
+		SPEED_BOOST,
+		IMMUNITY,
+		SLOW_DOTS,
+		MINUS_DEATHS,
+	}
+
+	private PowerUp activePowerUp = null;
+	private long powerUpEndTime = 0;
+	private static final int MOVEMENT_STEP_BOOST = 2;
+	private static final long POWERUP_DURATION = 5000; // 5 seconds
+	public boolean powerupactive = false; 
+
+	//Random PowerUp generator
+	private void activateRandomPowerUp() {
+		powerupactive = true;
+		PowerUp[] powerUps = PowerUp.values();
+		activePowerUp = powerUps[(int) (Math.random() * powerUps.length)];
+		Game.easyLog(Game.logger, Level.INFO, "Power-Up Activated: " + activePowerUp.name());
+		powerUpEndTime = System.currentTimeMillis() + POWERUP_DURATION;
+		powerupMessageEndTime = System.currentTimeMillis() + 1000;
+		setPlayerColor(Color.GREEN);
+		switch (activePowerUp) {
+			case SPEED_BOOST:
+				break;
+			case IMMUNITY:
+				break;
+			case SLOW_DOTS:
+				break;
+			case MINUS_DEATHS:
+				break;
+		}
+	}
+
+	public long getPowerupMessageEndTime() {
+    	return this.powerupMessageEndTime;
+	}
+
+	public PowerUp getActivePowerUp(){
+		return this.activePowerUp;
+	}
 
 	// Inner class to handle FPGA server for each player
 	private class FPGAServer {
@@ -232,6 +277,15 @@ public class Player {
 	private static final int MOVEMENT_STEP = 1;
 
 	public void update(GameLevel level) {
+		if (activePowerUp != null && System.currentTimeMillis() > powerUpEndTime){
+			activePowerUp = null;
+			setPlayerColor(Color.RED);
+			for (Dot dot : level.dots){
+				dot.setSpeed(0.7);
+			}
+			this.already_minus = false;
+			powerupactive = false;
+		}
 		this.snapX = this.x / 40;
 		this.snapY = this.y / 40;
 
@@ -249,6 +303,9 @@ public class Player {
 					TinySound.init();
 					TinySound.loadSound(Player.class.getClassLoader()
 							.getResource("resources/ding.wav")).play();
+
+					//Randomly assign a power-up
+					activateRandomPowerUp();
 				}
 			}
 		}
@@ -315,21 +372,26 @@ public class Player {
 		} else {
 			//Handles the TCP connection to the FPGA controller
 			// Handle movement based on FPGA tilt data
+			//Added power up logic
+			int currentMovementStep = MOVEMENT_STEP;
+			if(activePowerUp == PowerUp.SPEED_BOOST){
+				currentMovementStep = MOVEMENT_STEP_BOOST;
+			}
 			if (xTilt < -TILT_THRESHOLD_X && !this.collidingRight) {
-				this.x += MOVEMENT_STEP;  // Move right
+				this.x += currentMovementStep;  // Move right
 			} else if (xTilt > TILT_THRESHOLD_X && !this.collidingLeft) {
-				this.x -= MOVEMENT_STEP;  // Move left
+				this.x -= currentMovementStep;  // Move left
 			}
 
 			if (yTilt > TILT_THRESHOLD_Y && !this.collidingDown) {
-				this.y += MOVEMENT_STEP;  // Move down
+				this.y += currentMovementStep;  // Move down
 			} else if (yTilt < -TILT_THRESHOLD_Y && !this.collidingUp) {
-				this.y -= MOVEMENT_STEP;  // Move up
+				this.y -= currentMovementStep;  // Move up
 			}
 			// Player-specific movement controls based on color
 			//change this if statement color changes which controls the FPGA (BLUE - RED is controlled, RED - BLUE is controlled)
 			//Place to add second port setup same way as 5000 but for different client to runt the other guy
-			if (this.playerColor.equals(Color.RED)) {
+			if (this.playerColor.equals(Color.RED) || this.playerColor.equals(Color.GREEN)) {
 				// Player 1 uses arrow keys
 				if (Input.up.isPressed && !this.collidingUp) this.y--;
 				if (Input.down.isPressed && !this.collidingDown) this.y++;
@@ -344,6 +406,13 @@ public class Player {
 			}
 		}
 
+		//Add slow dot logic
+		if (activePowerUp == PowerUp.SLOW_DOTS){
+			for (Dot dot : level.dots){
+				dot.setSpeed(0.1);
+			}
+		}
+
 		// Wrap-around logic for screen edges
 		if (this.x > 800) this.x = 0;
 		if (this.x < 0) this.x = 800;
@@ -351,10 +420,16 @@ public class Player {
 		if (this.y < 0) this.y = 600;
 
 		// Check for collision with dots (instant death)
-		if (!this.dead) {
+		if (!this.dead && activePowerUp != PowerUp.IMMUNITY) {
 			for (Dot dot : level.dots) {
 				if (this.collidesWith(dot.getBounds())) {
-					this.deaths++;
+					if (activePowerUp == PowerUp.MINUS_DEATHS && !this.already_minus){
+						this.deaths = this.deaths - 1;
+						this.already_minus = true;
+					}
+					else{
+						this.deaths++;
+					}
 					this.dead = true;
 
 					// Play death sound
@@ -609,6 +684,7 @@ public class Player {
 		this.collidingLeft = false;
 		this.collidingRight = false;
 		this.deaths = 0;
+		this.already_minus = false;
 		this.dead = false;
 		this.opacity = 255;
 	}

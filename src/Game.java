@@ -650,7 +650,7 @@ public class Game extends JPanel implements ActionListener {
 				// g.setColor(player2.getPlayerColor());
 				// drawRightJustifiedString("P2 Deaths: " + player2.getDeaths(), 750, 17, g);
 
-				g.setColor(Color.WHITE);
+				g.setColor(Color.BLACK);
 				drawCenteredString(levelNum + "/" + totalLevels, 400, 17, g);
 
 				if (Input.mouseOnWindow && Input.mouseCoords.x <= 65 && Input.mouseCoords.y <= 22) {
@@ -677,6 +677,36 @@ public class Game extends JPanel implements ActionListener {
 				g.setFont(new Font("Arial", Font.BOLD, 24));
 				g.drawString("Waiting for other players to complete the level...", 150, 300);
 			}
+			if (player.powerupactive && System.currentTimeMillis() < player.getPowerupMessageEndTime()) {
+				// Calculate the remaining time for the message
+				long remainingTime = player.getPowerupMessageEndTime() - System.currentTimeMillis();
+				int alpha = (int) (180 * (remainingTime / 1000.0)); // Fade out over 1 second
+
+				// Pop-up dimensions and position
+				int popupWidth = 400;  // Width of the pop-up
+				int popupHeight = 100; // Height of the pop-up
+				int popupX = (800 - popupWidth) / 2; // Center horizontally
+				int popupY = (600 - popupHeight) / 2; // Center vertically
+
+				// Draw the background rectangle with fading transparency
+				g.setColor(new Color(0, 0, 0, alpha)); // Semi-transparent black
+				g.fillRect(popupX, popupY, popupWidth, popupHeight);
+
+				// Draw a border around the pop-up
+				g.setColor(new Color(255, 255, 255, alpha)); // Semi-transparent white
+				g.drawRect(popupX, popupY, popupWidth, popupHeight);
+
+				// Set the text color and font with fading transparency
+				g.setColor(new Color(255, 255, 255, alpha)); // Semi-transparent white
+				g.setFont(new Font("Arial", Font.BOLD, 16)); // Smaller font size
+
+				// Draw the text
+				String powerupText = "PowerUp Unlocked: " + player.getActivePowerUp().name();
+				int textX = popupX + 20; // Add some padding
+				int textY = popupY + 40; // Add some padding
+				g.drawString(powerupText, textX, textY);
+			}
+
 		} else if (gameState == LEVEL_TITLE) {
 			//Background
 			g2.setPaint(new GradientPaint(0, 0, new Color(213, 213, 255), 0, 600, Color.WHITE));
