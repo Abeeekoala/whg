@@ -99,14 +99,20 @@ def handle_tcp_level_completion(conn, addr):
         if not all([player_id, combat_id, level_num is not None]):
             logger.warning(f"Invalid level completion data: {msg}")
             conn.send(json.dumps({"allCompleted": False}).encode('utf-8'))
+            conn.close()
             return
             
         logger.info(f"Level completion: Player {player_id} completed level {level_num} (combat: {combat_id})")
         
-        all_completed = False
-        current_level = 0
-        
+        # List to keep track of waiting connections for this combat group
         with level_lock:
+            # Initialize waiting connections list if it doesn't exist
+            if not hasattr(handle_tcp_level_completion, 'waiting_connections'):
+                handle_tcp_level_completion.waiting_connections = {}
+            
+            if combat_id not in handle_tcp_level_completion.waiting_connections:
+                handle_tcp_level_completion.waiting_connections[combat_id] = []
+                
             # Get the current level for this combat group
             current_level = level_numbers.get(combat_id, 0)
             
@@ -115,6 +121,7 @@ def handle_tcp_level_completion(conn, addr):
                 logger.info(f"Player {player_id} reporting completion for old level {level_num}, current is {current_level}")
                 # Tell them the level is already completed by everyone
                 conn.send(json.dumps({"allCompleted": True, "currentLevel": current_level}).encode('utf-8'))
+                conn.close()
                 return
                 
             # If this is the first report for this level, or the level is current
@@ -123,6 +130,14 @@ def handle_tcp_level_completion(conn, addr):
                 if level_num > current_level:
                     level_numbers[combat_id] = level_num
                     level_completions[combat_id] = set()
+                    
+                    # Close any connections waiting on the previous level
+                    for waiting_conn, _ in handle_tcp_level_completion.waiting_connections.get(combat_id, []):
+                        try:
+                            waiting_conn.close()
+                        except:
+                            pass
+                    handle_tcp_level_completion.waiting_connections[combat_id] = []
                 
                 # Mark this player as having completed the level
                 level_completions[combat_id].add(player_id)
@@ -141,26 +156,54 @@ def handle_tcp_level_completion(conn, addr):
                 logger.info(f"Combat {combat_id}: {len(level_completions[combat_id])}/{len(players_in_group)} " + 
                           f"players completed level {level_num}. All completed: {all_completed}")
                 
-                # If all completed, increment level number and clear completions
                 if all_completed:
+                    # If all completed, increment level number and clear completions
                     level_numbers[combat_id] = level_num + 1
                     level_completions[combat_id] = set()
-                
-        # Send response with current level information
-        response = {
-            "allCompleted": all_completed,
-            "currentLevel": level_numbers.get(combat_id, 0)
-        }
-        conn.send(json.dumps(response).encode('utf-8'))
+                    
+                    # Notify all waiting connections and close them
+                    response = json.dumps({
+                        "allCompleted": True,
+                        "currentLevel": level_numbers[combat_id]
+                    }).encode('utf-8')
+                    
+                    # Send response to all waiting connections
+                    for waiting_conn, waiting_pid in handle_tcp_level_completion.waiting_connections.get(combat_id, []):
+                        try:
+                            waiting_conn.send(response)
+                            waiting_conn.close()
+                            logger.info(f"Notified waiting player {waiting_pid} that all players completed level {level_num}")
+                        except Exception as e:
+                            logger.error(f"Error notifying waiting player: {e}")
+                    
+                    # Clear waiting connections for this combat group
+                    handle_tcp_level_completion.waiting_connections[combat_id] = []
+                    
+                    # Also notify the current connection
+                    conn.send(response)
+                    conn.close()
+                else:
+                    # Not all players completed yet, add this connection to waiting list
+                    response = json.dumps({
+                        "allCompleted": False,
+                        "currentLevel": level_numbers.get(combat_id, 0),
+                        "waitingForPlayers": list(missing_players)
+                    }).encode('utf-8')
+                    
+                    # Send initial response that we're waiting
+                    conn.send(response)
+                    
+                    # Add to waiting connections
+                    handle_tcp_level_completion.waiting_connections[combat_id].append((conn, player_id))
+                    logger.info(f"Added player {player_id} to waiting list for combat group {combat_id}")
         
     except Exception as e:
         logger.error(f"TCP level completion error: {e}")
         try:
             conn.send(json.dumps({"allCompleted": False, "error": str(e)}).encode('utf-8'))
+            conn.close()
         except:
             pass
-    finally:
-        conn.close()
 
 def tcp_level_completion_server():
     """Start a TCP server on port 5001 to handle level completion synchronization."""

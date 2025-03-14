@@ -27,17 +27,25 @@ type Player struct {
 	Addr       *net.UDPAddr
 }
 
+type LevelCompletion struct {
+	CurrentLevel     int
+	CompletedPlayers map[string]struct{}
+}
+
 var (
-	players     = make(map[string]*Player)
-	playersLock sync.RWMutex
+	players              = make(map[string]*Player)
+	playersLock          sync.RWMutex
+	levelCompletions     = make(map[string]*LevelCompletion)
+	levelCompletionsLock sync.RWMutex
 )
 
 // Constants for ports and timeout.
 const (
-	UDPPositionUpdatePort = 8089
-	UDPPlayerListPort     = 8090
-	TCPCombatIDPort       = 5000
-	TimeoutSeconds        = 15
+	UDPPositionUpdatePort  = 8089
+	UDPPlayerListPort      = 8090
+	TCPCombatIDPort        = 5000
+	TCPLevelCompletionPort = 5001
+	TimeoutSeconds         = 15
 )
 
 // padString returns a string padded with spaces up to the desired length.
@@ -98,7 +106,6 @@ func handleTCPCombatID(conn net.Conn) {
 			CombatTag: combatId,
 			X:         0,
 			Y:         0,
-			// Default velocities and color.
 			VelocityX: 0,
 			VelocityY: 0,
 			Color:     "red",
@@ -108,6 +115,123 @@ func handleTCPCombatID(conn net.Conn) {
 	}
 }
 
+// tcpLevelCompletionServer listens on TCP port 5001 for level completion messages.
+func tcpLevelCompletionServer() {
+	addr := fmt.Sprintf(":%d", TCPLevelCompletionPort)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("Error starting TCP server on port %d: %v", TCPLevelCompletionPort, err)
+	}
+	log.Printf("TCP level completion server listening on port %d", TCPLevelCompletionPort)
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Printf("TCP accept error: %v", err)
+			continue
+		}
+		go handleTCPLevelCompletion(conn)
+	}
+}
+
+// handleTCPLevelCompletion reads a JSON message from a TCP connection and processes level completion.
+func handleTCPLevelCompletion(conn net.Conn) {
+	defer conn.Close()
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Printf("Error reading from TCP connection: %v", err)
+		return
+	}
+	var msg map[string]interface{}
+	err = json.Unmarshal(buf[:n], &msg)
+	if err != nil {
+		log.Printf("Error parsing JSON: %v", err)
+		sendErrorResponse(conn, "Invalid JSON")
+		return
+	}
+	playerId, ok1 := msg["playerId"].(string)
+	combatId, ok2 := msg["combatId"].(string)
+	levelNumFloat, ok3 := msg["levelNum"].(float64)
+	if !ok1 || !ok2 || !ok3 {
+		log.Printf("Missing fields in message")
+		sendErrorResponse(conn, "Missing fields")
+		return
+	}
+	levelNum := int(levelNumFloat)
+
+	levelCompletionsLock.Lock()
+	defer levelCompletionsLock.Unlock()
+
+	if _, exists := levelCompletions[combatId]; !exists {
+		levelCompletions[combatId] = &LevelCompletion{
+			CurrentLevel:     0,
+			CompletedPlayers: make(map[string]struct{}),
+		}
+	}
+	lc := levelCompletions[combatId]
+
+	if levelNum < lc.CurrentLevel {
+		response := map[string]interface{}{
+			"allCompleted": true,
+			"currentLevel": lc.CurrentLevel,
+		}
+		sendJSONResponse(conn, response)
+		return
+	}
+
+	if levelNum > lc.CurrentLevel {
+		lc.CurrentLevel = levelNum
+		lc.CompletedPlayers = make(map[string]struct{})
+	}
+
+	lc.CompletedPlayers[playerId] = struct{}{}
+
+	playersLock.RLock()
+	var playersInGroup []string
+	for pid, p := range players {
+		if p.CombatTag == combatId && pid != "dummy-player-id" {
+			playersInGroup = append(playersInGroup, pid)
+		}
+	}
+	playersLock.RUnlock()
+
+	allCompleted := true
+	for _, pid := range playersInGroup {
+		if _, completed := lc.CompletedPlayers[pid]; !completed {
+			allCompleted = false
+			break
+		}
+	}
+
+	if allCompleted {
+		lc.CurrentLevel++
+		lc.CompletedPlayers = make(map[string]struct{})
+	}
+
+	response := map[string]interface{}{
+		"allCompleted": allCompleted,
+		"currentLevel": lc.CurrentLevel,
+	}
+	sendJSONResponse(conn, response)
+}
+
+func sendJSONResponse(conn net.Conn, data map[string]interface{}) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Error marshaling JSON: %v", err)
+		return
+	}
+	conn.Write(jsonData)
+}
+
+func sendErrorResponse(conn net.Conn, errorMsg string) {
+	response := map[string]interface{}{
+		"allCompleted": false,
+		"error":        errorMsg,
+	}
+	sendJSONResponse(conn, response)
+}
+
 // packPlayersData creates a binary packet with a count, timestamp, and data for each filtered player.
 func packPlayersData(excludeId string, combatTagFilter string) ([]byte, int) {
 	playersLock.RLock()
@@ -115,12 +239,9 @@ func packPlayersData(excludeId string, combatTagFilter string) ([]byte, int) {
 
 	activePlayers := []*Player{}
 	for _, p := range players {
-		// Simply exclude the player with the specified ID
 		if p.PlayerId == excludeId {
 			continue
 		}
-		
-		// Filter by combat tag if specified
 		if combatTagFilter == "" || p.CombatTag == combatTagFilter {
 			activePlayers = append(activePlayers, p)
 		}
@@ -128,7 +249,6 @@ func packPlayersData(excludeId string, combatTagFilter string) ([]byte, int) {
 	log.Printf("Packing %d players", len(activePlayers))
 
 	buf := new(bytes.Buffer)
-	// Write the number of players (uint32) and current timestamp (uint64).
 	if err := binary.Write(buf, binary.BigEndian, uint32(len(activePlayers))); err != nil {
 		log.Printf("Error writing player count: %v", err)
 	}
@@ -136,27 +256,21 @@ func packPlayersData(excludeId string, combatTagFilter string) ([]byte, int) {
 	if err := binary.Write(buf, binary.BigEndian, currentTimestamp); err != nil {
 		log.Printf("Error writing timestamp: %v", err)
 	}
-	// Write each player's data.
 	for _, p := range activePlayers {
-		// Write PlayerId as a fixed 36-byte string.
 		idPadded := padString(p.PlayerId, 36)
 		buf.WriteString(idPadded)
-		// Write the combat tag: 1 byte for length then tag bytes.
 		tagBytes := []byte(p.CombatTag)
 		buf.WriteByte(uint8(len(tagBytes)))
 		buf.Write(tagBytes)
-		// Write x, y, velocityX, and velocityY (each int32).
 		binary.Write(buf, binary.BigEndian, p.X)
 		binary.Write(buf, binary.BigEndian, p.Y)
 		binary.Write(buf, binary.BigEndian, p.VelocityX)
 		binary.Write(buf, binary.BigEndian, p.VelocityY)
-		// Write color as one byte (1 for "red", 2 for anything else).
 		colorByte := byte(2)
 		if strings.ToLower(p.Color) == "red" {
 			colorByte = 1
 		}
 		buf.WriteByte(colorByte)
-		// Write the player's last update timestamp (uint64).
 		binary.Write(buf, binary.BigEndian, uint64(p.Timestamp))
 	}
 	return buf.Bytes(), len(activePlayers)
@@ -294,15 +408,12 @@ func handlePlayerListRequest(data []byte, addr *net.UDPAddr, conn *net.UDPConn) 
 	playersLock.RLock()
 	if p, exists := players[playerId]; exists {
 		combatTag = p.CombatTag
-		// Also update player's UDP address and timestamp.
 		p.Addr = addr
 		p.Timestamp = time.Now().UnixNano() / 1e6
 	}
 	playersLock.RUnlock()
 
-	// The problem is here - we're only excluding the player if combatTag is empty
-	// Let's fix it to always exclude the requesting player
-	excludeId := playerId  // Always exclude the requesting player
+	excludeId := playerId
 	log.Printf("Excluding player %s", excludeId)
 	packet, count := packPlayersData(excludeId, combatTag)
 	log.Printf("Sending %d players in response to %s with combat tag '%s'",
@@ -338,7 +449,6 @@ func addDummyPlayer() {
 		CombatTag: "00000",
 		X:         200,
 		Y:         200,
-		// Zero velocity.
 		VelocityX: 0,
 		VelocityY: 0,
 		Color:     "blue",
@@ -367,6 +477,7 @@ func main() {
 
 	go cleanupRoutine()
 	go tcpCombatIDServer()
+	go tcpLevelCompletionServer()
 	go udpPositionUpdateServer()
 	go udpPlayerListServer()
 

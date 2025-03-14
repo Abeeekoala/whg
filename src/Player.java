@@ -446,70 +446,37 @@ public class Player {
 	private void handleMultiplayerLevelCompletion(GameLevel level) {
 		// Notify server that this player completed the level
 		Game.easyLog(Game.logger, Level.INFO, "Sending level completion to server for level " + Game.levelNum);
+		Game.setWaitingForOtherPlayers(true);
 		
-		// Send level completion to server and check if all players are complete
+		// Send level completion to server in a background thread
 		new Thread() {
 			public void run() {
 				try {
-					// Send completion notification to server
+					// This will block until all players complete or there's an error
 					boolean allPlayersCompleted = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
 					
 					if (allPlayersCompleted) {
 						// All players completed the level, proceed to next level
+						Game.setWaitingForOtherPlayers(false);
 						proceedToNextLevelMultiplayer(level);
 					} else {
-						// Not all players have completed the level yet
-						Game.easyLog(Game.logger, Level.INFO, "Waiting for other players to complete level " + Game.levelNum);
-						// Display a waiting message on screen
-						Game.setWaitingForOtherPlayers(true);
-						
-						// Start polling for completion status
-						startCompletionStatusPolling(level);
+						// There was an error or timeout
+						Game.easyLog(Game.logger, Level.WARNING, "Did not receive confirmation from server that all players completed");
+						// Fall back to single player behavior as a safety net
+						Game.setWaitingForOtherPlayers(false);
+						proceedToNextLevel(level);
 					}
 				} catch (Exception e) {
-					Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
-					// If there's an error, fall back to single player behavior
+					Game.easyLog(Game.logger, Level.SEVERE, "Error handling level completion: " + Game.getStringFromStackTrace(e));
+					// Fall back to single player behavior on error
+					Game.setWaitingForOtherPlayers(false);
 					proceedToNextLevel(level);
 				}
 			}
 		}.start();
-	}
-
-	private void startCompletionStatusPolling(final GameLevel level) {
-		new Thread() {
-			public void run() {
-				boolean allComplete = false;
-				
-				// Poll every 1 second until all players complete the level or polling is interrupted
-				while (!allComplete && !Thread.currentThread().isInterrupted()) {
-					try {
-						Thread.sleep(50); // Wait 1 second between polls
-						
-						// Check with server if all players have completed the level
-						allComplete = Game.getNetworkManager().sendLevelCompletionToServer(Game.levelNum);
-						
-						if (allComplete) {
-							// All players have now completed the level
-							Game.easyLog(Game.logger, Level.INFO, "All players completed level " + Game.levelNum);
-							Game.setWaitingForOtherPlayers(false);
-							proceedToNextLevelMultiplayer(level);
-							break;
-						}
-					} catch (InterruptedException e) {
-						Thread.currentThread().interrupt();
-						Game.easyLog(Game.logger, Level.WARNING, "Completion polling interrupted: " + e.getMessage());
-					} catch (Exception e) {
-						Game.easyLog(Game.logger, Level.SEVERE, "Error checking completion status: " + Game.getStringFromStackTrace(e));
-						// Wait a bit longer before retrying after an error
-						try {
-							Thread.sleep(2000);
-						} catch (InterruptedException ie) {
-							Thread.currentThread().interrupt();
-						}
-					}
-				}
-			}
-		}.start();
+		
+		// We've sent the notification and started waiting - the rest will happen when we get server confirmation
+		hasNotifiedLevelCompletion = true;
 	}
 
 	private void proceedToNextLevelMultiplayer(GameLevel level) {

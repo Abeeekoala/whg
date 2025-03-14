@@ -272,7 +272,7 @@ public class NetworkManager {
             dos.writeInt(y); // 4 bytes
             dos.writeInt(velocityX); // 4 bytes
             dos.writeInt(velocityY); // 4 bytes
-            dos.writeUTF(playerColor.equals(Color.RED) ? "red" : "blue"); // 2-byte length + UTF-8 string
+            dos.writeUTF(playerColor.equals(Color.RED) ? "red" : "green"); // 2-byte length + UTF-8 string
             byte[] data = baos.toByteArray();
 
             InetAddress serverAddr = InetAddress.getByName(new URI(serverUrl).getHost());
@@ -389,7 +389,7 @@ public class NetworkManager {
                     
                     byte colorByte = data[offset];
                     offset += 1;
-                    Color color = (colorByte == 1) ? Color.RED : Color.BLUE;
+                    Color color = (colorByte == 1) ? Color.RED : Color.GREEN;
                     long lastUpdated = 
                         ((long)(data[offset] & 0xFF) << 56) |
                         ((long)(data[offset+1] & 0xFF) << 48) |
@@ -583,7 +583,7 @@ public class NetworkManager {
         try {
             // Create socket
             Socket socket = new Socket(serverAddr, 5001); // New port for level completion
-            socket.setSoTimeout(10000); // 10 second timeout
+            socket.setSoTimeout(30000); // 30 second timeout (longer for waiting)
             
             // Prepare message
             JSONObject message = new JSONObject();
@@ -595,7 +595,7 @@ public class NetworkManager {
             OutputStream output = socket.getOutputStream();
             output.write(message.toString().getBytes());
             
-            // Wait for response
+            // Wait for response - could be immediate or after all players complete
             InputStream input = socket.getInputStream();
             byte[] buffer = new byte[1024];
             int bytesRead = input.read(buffer);
@@ -606,8 +606,59 @@ public class NetworkManager {
                 JSONObject responseJson = (JSONObject)parser.parse(response);
                 boolean allCompleted = Boolean.TRUE.equals(responseJson.get("allCompleted"));
                 
+                if (allCompleted) {
+                    Game.easyLog(Game.logger, Level.INFO, "All players completed level " + levelNum);
+                } else {
+                    // If we need to wait, get details on who we're waiting for
+                    Object waitingForObj = responseJson.get("waitingForPlayers");
+                    if (waitingForObj instanceof JSONArray) {
+                        JSONArray waitingFor = (JSONArray)waitingForObj;
+                        Game.easyLog(Game.logger, Level.INFO, 
+                            "Waiting for " + waitingFor.size() + " players to complete level " + levelNum);
+                        
+                        // If we need to wait, start a separate thread to keep waiting
+                        // for the final "all completed" message from the server
+                        return waitForAllPlayersToComplete(socket, input);
+                    }
+                }
+                
+                socket.close();
+                return allCompleted;
+            }
+            
+            socket.close();
+            return false;
+        } catch (SocketTimeoutException e) {
+            Game.easyLog(Game.logger, Level.WARNING, "Timeout waiting for level completion response");
+            return false;
+        } catch (Exception e) {
+            Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
+            return false; // On error, allow the player to proceed (graceful degradation)
+        }
+    }
+
+    /**
+     * Waits for the server to send the "all completed" message
+     * @param socket Open socket to the server
+     * @param input InputStream from the socket
+     * @return True when all players have completed, false on error
+     */
+    private boolean waitForAllPlayersToComplete(Socket socket, InputStream input) {
+        try {
+            Game.easyLog(Game.logger, Level.INFO, "Waiting for server notification that all players completed the level");
+            
+            // Wait for response from server
+            byte[] buffer = new byte[1024];
+            int bytesRead = input.read(buffer);
+            
+            if (bytesRead > 0) {
+                String response = new String(buffer, 0, bytesRead);
+                JSONParser parser = new JSONParser();
+                JSONObject responseJson = (JSONObject)parser.parse(response);
+                boolean allCompleted = Boolean.TRUE.equals(responseJson.get("allCompleted"));
+                
                 Game.easyLog(Game.logger, Level.INFO, 
-                    "Level completion response: " + (allCompleted ? "All players completed" : "Waiting for others"));
+                    "Received server notification: " + (allCompleted ? "All players completed!" : "Still waiting"));
                 
                 socket.close();
                 return allCompleted;
@@ -616,8 +667,13 @@ public class NetworkManager {
             socket.close();
             return false;
         } catch (Exception e) {
-            Game.easyLog(Game.logger, Level.SEVERE, "Error sending level completion: " + Game.getStringFromStackTrace(e));
-            return false; // On error, allow the player to proceed (graceful degradation)
+            Game.easyLog(Game.logger, Level.SEVERE, "Error waiting for player completion: " + Game.getStringFromStackTrace(e));
+            try {
+                socket.close();
+            } catch (Exception ex) {
+                // Ignore close errors
+            }
+            return false;
         }
     }
 }
