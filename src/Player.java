@@ -12,6 +12,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.logging.Level;
+import java.io.DataInputStream;
 
 
 import kuusisto.tinysound.Sound;
@@ -88,11 +89,19 @@ public class Player {
 	}
 
 	// Inner class to handle FPGA server for each player
-	private class FPGAServer {
+	public class FPGAServer {
 		private ServerSocket serverSocket;
 		private Socket clientSocket;
-		private BufferedReader reader;
+		private DataInputStream dataInputStream;
 		private Thread serverThread;
+
+		// Declare xTilt and yTilt as volatile for thread safety
+		private volatile double xTilt = 0.0;
+		private volatile double yTilt = 0.0;
+
+		private static final int TILT_THRESHOLD_X = 100;
+		private static final int TILT_THRESHOLD_Y = 100;
+		private static final int MOVEMENT_STEP = 1;
 
 		public FPGAServer(int port) {
 			this.serverThread = new Thread(() -> {
@@ -103,24 +112,40 @@ public class Player {
 					clientSocket = serverSocket.accept();
 					System.out.println("Connected to client on port " + port + "!");
 
-					reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+					// Use DataInputStream to read bytes
+					dataInputStream = new DataInputStream(clientSocket.getInputStream());
 
 					while (true) {
-						String data = reader.readLine();
-						if (data != null) {
-							String[] values = data.split(",");
-							if (values.length == 2) {
-								xTilt = Double.parseDouble(values[0].trim());
-								yTilt = Double.parseDouble(values[1].trim());
-							} else {
-								System.out.println("Invalid data format received.");
-							}
+						// Read 4 bytes (2 bytes for X, 2 bytes for Y)
+						byte[] buffer = new byte[4];
+						int bytesRead = dataInputStream.read(buffer);
+						if (bytesRead == 4) {
+							// Unpack the bytes into two short integers (little-endian)
+							short xValue = (short) ((buffer[1] & 0xFF) << 8 | (buffer[0] & 0xFF));
+							short yValue = (short) ((buffer[3] & 0xFF) << 8 | (buffer[2] & 0xFF));
+
+							// Update tilt values
+							xTilt = xValue;  // Implicit conversion from short to double
+							yTilt = yValue;  // Implicit conversion from short to double
+
+							// Debugging: Print received values
+							//System.out.println("FPGA Server - Received X: " + xTilt + ", Y: " + yTilt);
+						} else {
+							System.out.println("Invalid data received.");
 						}
 					}
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			});
+		}
+
+		public double getXTilt() {
+			return xTilt;
+		}
+
+		public double getYTilt() {
+			return yTilt;
 		}
 
 		public void start() {
@@ -132,12 +157,11 @@ public class Player {
 				if (serverSocket != null) serverSocket.close();
 				if (clientSocket != null) clientSocket.close();
 				if (serverThread != null) serverThread.interrupt();
-			} catch (Exception e) {
+			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
 	}
-
 	// Constructors modified to include port for FPGA server
 	public Player(String name, int x, int y, Color color, int port) {
 		this.name = name;
@@ -268,12 +292,18 @@ public class Player {
 		}
 	}
 
+	private double normalizeTilt(double tilt, int threshold) {
+		// Assuming tilt is in the range [-32768, 32767]
+		double maxTilt = 32768.0;
+		return (tilt / maxTilt) * threshold;
+	}
+
 	boolean collidesWith(Shape other) {
 	    return this.getBounds().getBounds2D().intersects(other.getBounds2D());
 	}
 
-	private static final int TILT_THRESHOLD_X = 100;
-	private static final int TILT_THRESHOLD_Y = 100;
+	private static final double TILT_THRESHOLD_X = 100;
+	private static final double TILT_THRESHOLD_Y = 100;
 	private static final int MOVEMENT_STEP = 1;
 
 	public void update(GameLevel level) {
@@ -377,6 +407,13 @@ public class Player {
 			if(activePowerUp == PowerUp.SPEED_BOOST){
 				currentMovementStep = MOVEMENT_STEP_BOOST;
 			}
+
+			// Get tilt values from FPGA server
+			double xTilt = fpgaServer.getXTilt();
+			double yTilt = fpgaServer.getYTilt();
+
+			System.out.println("Received X: " + xTilt + ", Y: " + yTilt);
+
 			if (xTilt < -TILT_THRESHOLD_X && !this.collidingRight) {
 				this.x += currentMovementStep;  // Move right
 			} else if (xTilt > TILT_THRESHOLD_X && !this.collidingLeft) {
@@ -388,6 +425,7 @@ public class Player {
 			} else if (yTilt < -TILT_THRESHOLD_Y && !this.collidingUp) {
 				this.y -= currentMovementStep;  // Move up
 			}
+
 			// Player-specific movement controls based on color
 			//change this if statement color changes which controls the FPGA (BLUE - RED is controlled, RED - BLUE is controlled)
 			//Place to add second port setup same way as 5000 but for different client to runt the other guy
