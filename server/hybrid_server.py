@@ -427,7 +427,7 @@ def handle_position_update(data, addr):
         color = data[offset:offset + color_length].decode('utf-8')
 
         # Log the received data for debugging
-        logger.info(f"Position update: player={player_id}, pos=({x},{y}), vel=({velocityX},{velocityY}), color={color}")
+        logger.debug(f"Position update: player={player_id}, pos=({x},{y}), vel=({velocityX},{velocityY}), color={color}")
 
         # Update player data
         with player_lock:

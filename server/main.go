@@ -185,6 +185,8 @@ func handleTCPLevelCompletion(conn net.Conn) {
 	}
 
 	lc.CompletedPlayers[playerId] = struct{}{}
+	
+	log.Printf("Player completed level: PlayerID=%s, CombatID=%s, Level=%d", playerId, combatId, levelNum)
 
 	playersLock.RLock()
 	var playersInGroup []string
@@ -246,7 +248,6 @@ func packPlayersData(excludeId string, combatTagFilter string) ([]byte, int) {
 			activePlayers = append(activePlayers, p)
 		}
 	}
-	log.Printf("Packing %d players", len(activePlayers))
 
 	buf := new(bytes.Buffer)
 	if err := binary.Write(buf, binary.BigEndian, uint32(len(activePlayers))); err != nil {
@@ -346,8 +347,6 @@ func handlePositionUpdate(data []byte, addr *net.UDPAddr) {
 		return
 	}
 	color := string(colorBytes)
-	log.Printf("Position update for player %s: pos=(%d,%d), vel=(%d,%d), color=%s",
-		playerId, x, y, velX, velY, color)
 
 	playersLock.Lock()
 	defer playersLock.Unlock()
@@ -402,7 +401,6 @@ func udpPlayerListServer() {
 // then looks up that player's combat tag and sends back a filtered list.
 func handlePlayerListRequest(data []byte, addr *net.UDPAddr, conn *net.UDPConn) {
 	playerId := strings.TrimSpace(string(data))
-	log.Printf("Player list request from %s", playerId)
 
 	var combatTag string
 	playersLock.RLock()
@@ -414,10 +412,7 @@ func handlePlayerListRequest(data []byte, addr *net.UDPAddr, conn *net.UDPConn) 
 	playersLock.RUnlock()
 
 	excludeId := playerId
-	log.Printf("Excluding player %s", excludeId)
-	packet, count := packPlayersData(excludeId, combatTag)
-	log.Printf("Sending %d players in response to %s with combat tag '%s'",
-		count, playerId, combatTag)
+	packet, _ := packPlayersData(excludeId, combatTag)
 	if _, err := conn.WriteToUDP(packet, addr); err != nil {
 		log.Printf("Error sending UDP response: %v", err)
 	}
